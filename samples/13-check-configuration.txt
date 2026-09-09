@@ -1,0 +1,6 @@
+Mode: LIVE
+Triggers installed: 0  ← run "Install daily triggers"
+
+Problems:
+ - Dr. G R Gnana King e-mail is missing (Config → GNANA_KING_EMAIL)
+ - Owner Ashwin has no e-mail (Config → OWNER_ATTENDANCE, format "Name <email>")
