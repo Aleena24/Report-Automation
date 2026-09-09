@@ -1,0 +1,15 @@
+{
+  "name": "sahrdaya-daily-reports",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Google Apps Script that sends the Sahrdaya daily action-point reports from the tracking spreadsheet",
+  "scripts": {
+    "test": "TZ=Asia/Kolkata node test/run.js",
+    "login": "clasp login",
+    "deploy": "./deploy.sh",
+    "open": "clasp open"
+  },
+  "devDependencies": {
+    "@google/clasp": "^2.4.2"
+  }
+}

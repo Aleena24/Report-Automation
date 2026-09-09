@@ -1,3 +1,12 @@
 node_modules/
-.clasp.json
-test/out/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.directory
+apps-script/.clasp.json
+apps-script/test/out/
+server/test/out/
+infra/.deployed

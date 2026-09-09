@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+apps-script
+docs
+infra
+.git
+.gitignore
+*.md
+.env*
+server/test/out
