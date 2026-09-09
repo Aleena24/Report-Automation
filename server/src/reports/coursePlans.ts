@@ -1,5 +1,5 @@
 import type { BuildCtx } from './context.js';
-import { owners, isSkipDay, senderName } from './context.js';
+import { departmentRecipients, owners, isSkipDay, senderName } from './context.js';
 import type { BuildResult } from '../types.js';
 import { isPendingStatus } from '../lib/status.js';
 import { daysBetween, niceDate, parseDateKey } from '../lib/dates.js';
@@ -8,7 +8,7 @@ import { htmlTable, moreThan7, subjectLine, summaryByGroup, wrap } from '../lib/
 
 export const COURSE_PLANS_TITLE = 'Pending Course Plan Approvals';
 
-/** Report 1 – Pending Course Plan Approvals (owner George), daily 08–18 Sep, even on Sundays. */
+/** Report 1 – Pending Course Plan Approvals: daily within the configured period, optionally even on skip days. */
 export async function buildCoursePlanReport(ctx: BuildCtx): Promise<BuildResult> {
   const { cfg, todayKey } = ctx;
   const startKey = parseDateKey(cfg.coursePlanStart);
@@ -43,8 +43,7 @@ export async function buildCoursePlanReport(ctx: BuildCtx): Promise<BuildResult>
       summaryByGroup(data, 'dept', 'Department');
   }
   return {
-    to: [cfg.principalEmail, cfg.ashHodEmail],
-    cc: [cfg.manishankarEmail, cfg.gnanaKingEmail, owner.email, backup.email],
+    ...departmentRecipients(cfg, cfg.coursePlansTo, owner, backup),
     replyTo: owner.email,
     senderName: senderName(owner.name || 'Course Plans'),
     subject: subjectLine(COURSE_PLANS_TITLE, todayKey),

@@ -9,7 +9,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
-        name: 'Sahrdaya Daily Reports',
+        name: 'Daily Reports',
         short_name: 'Daily Reports',
         description: 'Daily Action Points reports – course plans, student profiles, queries, attendance notices and dev-team status, sent automatically.',
         theme_color: '#1f4e79',

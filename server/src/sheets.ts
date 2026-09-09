@@ -56,7 +56,7 @@ export function sheetUrl(sheetId: string, gid?: number): string {
 
 export interface TrackerSnapshot { tasks: Task[]; table: Table; tab: string; link: string; sheetTitle: string; error?: string }
 
-/** Read and normalise the Assignments tracker. Never throws – errors are reported in `error`. */
+/** Read and normalise the task tracker tab. Never throws – errors are reported in `error`. */
 export async function readTracker(reader: SheetReader, sheetId: string, tab: string): Promise<TrackerSnapshot> {
   const base = { tasks: [] as Task[], table: { headers: [], rows: [], headerRow: -1 } as Table, tab, link: sheetUrl(sheetId), sheetTitle: '' };
   if (!sheetId) return { ...base, error: 'No spreadsheet ID configured (Settings → Google Sheet)' };

@@ -2,7 +2,8 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { Deps } from '../engine.js';
 import { loadConfig, overview, previewReport, runReports, healthProblems, buildCtx } from '../engine.js';
-import { ConfigSchema, CONFIG_FIELDS } from '../config.js';
+import { ConfigSchema, CONFIG_FIELDS, CONFIG_SECRET_KEYS, type Config } from '../config.js';
+import { smtpSettings } from '../mailer.js';
 import { HttpError, requireAdmin } from '../auth.js';
 import { ALL_KEYS, EVENING_KEYS, MORNING_KEYS, REPORTS } from '../reports/registry.js';
 import { readTracker } from '../sheets.js';
@@ -71,6 +72,15 @@ function normaliseQuery(v: Record<string, unknown>, today: string) {
   return v;
 }
 
+/** Settings as the browser may see them: secrets blanked. */
+function publicConfig(cfg: Config): Config {
+  const out = { ...cfg };
+  for (const k of CONFIG_SECRET_KEYS) (out as Record<string, unknown>)[k] = '';
+  return out;
+}
+/** Mail-related settings that may be tried out before saving. */
+const MailOverrides = ConfigSchema.pick({ mailTransport: true, mailFrom: true, smtpHost: true, smtpPort: true, smtpUser: true, smtpPassword: true }).partial();
+
 let saEmailCache: string | null = null;
 async function serviceAccountEmail(): Promise<string> {
   if (saEmailCache !== null) return saEmailCache;
@@ -93,7 +103,10 @@ export function apiRouter(deps: Deps): Router {
   r.get('/today', async (_req, res) => res.json(await overview(deps)));
 
   // ---- reports ------------------------------------------------------------------------------
-  r.get('/reports', (_req, res) => res.json(REPORTS.map(({ build: _b, ...d }) => d)));
+  r.get('/reports', async (_req, res) => {
+    const cfg = await loadConfig(deps);
+    res.json(REPORTS.map(({ build: _b, when, ...d }) => ({ ...d, when: when(cfg) })));
+  });
   r.get('/reports/:key/preview', async (req, res) => {
     const key = String(req.params.key) as ReportKey;
     if (!ALL_KEYS.includes(key)) throw new HttpError(404, 'Unknown report');
@@ -206,34 +219,50 @@ export function apiRouter(deps: Deps): Router {
   r.get('/settings', async (req, res) => {
     const cfg = await loadConfig(deps);
     const mailer = deps.mailerFor(cfg);
+    const smtp = smtpSettings(cfg, deps.env);
+    const sch = deps.env.schedule;
+    const at = (t: string) => (t ? `${t} (${sch.timeZone})` : 'not scheduled');
     res.json({
-      config: cfg, fields: CONFIG_FIELDS, readOnly: user(req).role !== 'admin',
+      config: publicConfig(cfg), fields: CONFIG_FIELDS, readOnly: user(req).role !== 'admin',
       meta: {
         serviceAccountEmail: await serviceAccountEmail(), projectId: deps.env.projectId, region: deps.env.region, authMode: deps.env.authMode,
-        transport: mailer.describe(), smtpConfigured: !!deps.env.smtpPass, appUrl: cfg.appUrl || deps.env.appUrl,
+        transport: mailer.describe(), smtpConfigured: !!smtp.pass, smtpPasswordSource: smtp.passSource, appUrl: cfg.appUrl || deps.env.appUrl,
+        adminsOpen: !emails(cfg.admins).length,
         schedule: [
-          { job: 'Morning reports', time: '09:00 IST', note: 'course plans, student profiles, status & queries, attendance, dev-team reminder' },
-          { job: 'Morning retry', time: '09:35 IST', note: 'sends only what is not yet in the Mail Log' },
-          { job: 'Evening digest', time: '17:30 IST', note: 'module completion & testing status' },
+          { job: 'Morning reports', time: at(sch.morning), note: 'course plans, student profiles, status & queries, attendance, dev-team reminder' },
+          { job: 'Morning retry', time: at(sch.retry), note: 'sends only what is not yet in the Mail Log' },
+          { job: 'Evening digest', time: at(sch.evening), note: 'module completion & testing status' },
         ],
       },
     });
   });
   r.put('/settings', requireAdmin, async (req, res) => {
     const patch = parse(ConfigSchema.partial(), req.body);
+    for (const k of CONFIG_SECRET_KEYS) if (patch[k] === '') delete patch[k]; // blank = keep the stored secret
     for (const k of ['coursePlanStart', 'coursePlanEnd', 'attendanceNoticeDate', 'attendanceCloseDate'] as const) {
       if (patch[k] !== undefined && patch[k] !== '' && !parseDateKey(patch[k])) throw new HttpError(400, `${k}: not a date`);
       if (patch[k]) patch[k] = parseDateKey(patch[k]);
     }
     await deps.store.saveConfig(patch);
-    res.json({ config: await loadConfig(deps) });
+    res.json({ config: publicConfig(await loadConfig(deps)) });
+  });
+  r.delete('/settings/smtp-password', requireAdmin, async (_req, res) => {
+    await deps.store.saveConfig({ smtpPassword: '' });
+    res.json({ ok: true });
   });
   r.get('/settings/health', async (_req, res) => {
     const cfg = await loadConfig(deps);
-    res.json({ problems: await healthProblems(cfg, buildCtx(deps, cfg)), dryRun: cfg.dryRun });
+    res.json({ problems: await healthProblems(cfg, buildCtx(deps, cfg), deps.env), dryRun: cfg.dryRun });
   });
+  /** Sends a test mail to the caller. Admins may pass unsaved mail settings in `settings` to try them first. */
   r.post('/settings/test-mail', async (req, res) => {
-    const cfg = await loadConfig(deps);
+    let cfg = await loadConfig(deps);
+    if (req.body?.settings && typeof req.body.settings === 'object') {
+      if (user(req).role !== 'admin') throw new HttpError(403, 'Only admins can test unsaved mail settings');
+      const o = parse(MailOverrides, req.body.settings);
+      for (const k of CONFIG_SECRET_KEYS) if ((o as Record<string, unknown>)[k] === '') delete (o as Record<string, unknown>)[k];
+      cfg = { ...cfg, ...o };
+    }
     const mailer = deps.mailerFor(cfg);
     const to = user(req).email;
     const subject = `${APP_NAME} ${DASH} test mail ${DASH} ${niceDate(today())}`;

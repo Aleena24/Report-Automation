@@ -12,7 +12,7 @@ export default function Queries() {
   const t = me?.today || today();
   const def: DatasetDef = {
     ds: 'queries', title: 'Queries', singular: 'query', importTabLabel: 'Queries',
-    intro: 'Queries received by e-mail and queries reported directly to Celerscet. The 09:00 "Daily Status and Query Closure Report" lists everything received or closed since yesterday plus everything still open, with closure remarks.',
+    intro: 'Queries received by e-mail and queries reported directly to Celerscet. The morning "Daily Status and Query Closure Report" lists everything received or closed since yesterday plus everything still open, with closure remarks.',
     fields: [
       { key: 'receivedOn', label: 'Received on', type: 'date' },
       { key: 'source', label: 'Source', type: 'select', options: ['Email', 'Celerscet', 'Phone', 'In person', 'Other'] },

@@ -1,4 +1,4 @@
-import type { Config } from '../config.js';
+import type { Config, Schedule } from '../config.js';
 import type { Store } from '../store.js';
 import { readTracker, type SheetReader, type TrackerSnapshot } from '../sheets.js';
 import type { CoursePlan, Faculty, QueryItem, StudentProfile } from '../types.js';
@@ -23,6 +23,8 @@ export interface BuildCtx {
   preview: boolean;
   data: DataSource;
   appUrl: string;
+  /** Scheduled batch times, for wording inside the mails. */
+  schedule: Schedule;
 }
 
 export function makeDataSource(store: Store, reader: SheetReader, cfg: Config): DataSource {
@@ -60,6 +62,24 @@ export function isSkipDay(cfg: Config, key: string): string {
 export type OwnerKey = 'CoursePlans' | 'StudentProfiles' | 'Attendance' | 'StatusReport';
 export function owners(cfg: Config, k: OwnerKey): { owner: Person; backup: Person } {
   return { owner: parsePerson(cfg[`owner${k}`]), backup: parsePerson(cfg[`backup${k}`]) };
+}
+
+/**
+ * Recipient rules. Every role comes from Settings; a filled per-report "To" list replaces the default rule.
+ *  - department reports (course plans, student profiles): To Principal + HoD; CC coordinator, always-CC, owner, backup
+ *  - management reports (status & queries, evening digest): To coordinator + Principal; CC always-CC, owner, backup
+ *  - attendance notice: To all faculty; CC coordinator, Principal, HoD, always-CC, owner, backup
+ */
+export function departmentRecipients(cfg: Config, override: string, owner: Person, backup?: Person) {
+  const to = emails(override).length ? emails(override) : emails([cfg.principalEmail, cfg.hodEmail].join(','));
+  return { to, cc: [cfg.coordinatorEmail, ...emails(cfg.ccAll), owner.email, backup?.email || ''] };
+}
+export function managementRecipients(cfg: Config, override: string, owner: Person, backup?: Person) {
+  const to = emails(override).length ? emails(override) : emails([cfg.coordinatorEmail, cfg.principalEmail].join(','));
+  return { to, cc: [cfg.coordinatorEmail, cfg.principalEmail, ...emails(cfg.ccAll), owner.email, backup?.email || ''] };
+}
+export function attendanceCc(cfg: Config, owner: Person, backup: Person): string[] {
+  return [cfg.coordinatorEmail, cfg.principalEmail, cfg.hodEmail, ...emails(cfg.ccAll), owner.email, backup.email];
 }
 
 export function senderName(name: string): string { return name ? `${APP_NAME} ${DASH} ${name}` : APP_NAME; }

@@ -1,8 +1,8 @@
 {
-  "name": "sahrdaya-daily-reports",
+  "name": "daily-reports",
   "version": "2.0.0",
   "private": true,
-  "description": "Sahrdaya Daily Reports – React PWA + Node API on Cloud Run that sends the Daily Action Points mails automatically",
+  "description": "Daily Reports – React PWA + Node API on Cloud Run that sends the Daily Action Points mails automatically",
   "workspaces": [
     "server",
     "web"

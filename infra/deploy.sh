@@ -35,7 +35,7 @@ gcloud iam service-accounts add-iam-policy-binding "$APP_SA" --member="serviceAc
 SECRET_FLAGS=()
 if exists gcloud secrets describe "$SMTP_SECRET"; then SECRET_FLAGS=(--set-secrets "SMTP_PASS=${SMTP_SECRET}:latest"); fi
 
-ENV_VARS="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},REGION=${REGION},FIRESTORE_DATABASE=${FIRESTORE_DB},AUTH_MODE=iap,IAP_AUDIENCE=${IAP_AUDIENCE},APP_URL=${APP_URL},NODE_ENV=production"
+ENV_VARS="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},REGION=${REGION},FIRESTORE_DATABASE=${FIRESTORE_DB},AUTH_MODE=iap,IAP_AUDIENCE=${IAP_AUDIENCE},APP_URL=${APP_URL},NODE_ENV=production,SCHEDULE=${MORNING_TIME};${RETRY_TIME};${EVENING_TIME},SCHEDULE_TZ=${TIME_ZONE}"
 
 step "Building the container and deploying the web service '$SERVICE' (Cloud Build)"
 gcloud beta run deploy "$SERVICE" --source . --region "$REGION" --platform managed \
@@ -60,23 +60,23 @@ JOB_ARGS=(--image "$IMAGE" --region "$REGION" --service-account "$APP_SA" --set-
 if exists gcloud run jobs describe "$JOB" --region "$REGION"; then gcloud run jobs update "$JOB" "${JOB_ARGS[@]}" --quiet; else gcloud run jobs create "$JOB" "${JOB_ARGS[@]}" --quiet; fi
 gcloud run jobs add-iam-policy-binding "$JOB" --region "$REGION" --member="serviceAccount:$SCHED_SA" --role=roles/run.invoker --quiet >/dev/null
 
-step "Cloud Scheduler (Asia/Kolkata)"
+step "Cloud Scheduler ($TIME_ZONE)"
 RUN_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_ID}/jobs/${JOB}:run"
 sched() { # name, cron, description
-  local args=(--location "$REGION" --schedule "$2" --time-zone "Asia/Kolkata" --uri "$RUN_URI" --http-method POST --oauth-service-account-email "$SCHED_SA" --description "$3" --attempt-deadline 300s)
+  local args=(--location "$REGION" --schedule "$2" --time-zone "$TIME_ZONE" --uri "$RUN_URI" --http-method POST --oauth-service-account-email "$SCHED_SA" --description "$3" --attempt-deadline 300s)
   if exists gcloud scheduler jobs describe "$1" --location "$REGION"; then gcloud scheduler jobs update http "$1" "${args[@]}" --quiet >/dev/null; else gcloud scheduler jobs create http "$1" "${args[@]}" --quiet >/dev/null; fi
   echo "  $1: $2"
 }
-sched daily-reports-morning "0 9 * * *"  "Daily Reports: morning batch (course plans, student profiles, status & queries, attendance, dev-team reminder)"
-sched daily-reports-retry   "35 9 * * *" "Daily Reports: morning retry – only what is not yet in the mail log"
-sched daily-reports-evening "30 17 * * *" "Daily Reports: evening module completion & testing digest"
+sched daily-reports-morning "$(cron_of "$MORNING_TIME")" "Daily Reports: morning batch (course plans, student profiles, status & queries, attendance, dev-team reminder)"
+sched daily-reports-retry   "$(cron_of "$RETRY_TIME")"   "Daily Reports: morning retry – only what is not yet in the mail log"
+sched daily-reports-evening "$(cron_of "$EVENING_TIME")" "Daily Reports: evening module completion & testing digest"
 
 cat <<MSG
 
 Done.
   App:        $APP_URL   (sign in with a Google Workspace account that was granted access)
   Job:        gcloud run jobs execute $JOB --region $REGION      (or infra/run-now.sh)
-  Grant more people access:   infra/grant-access.sh someone@sahrdaya.ac.in
-  Enable real sending:        infra/set-smtp-password.sh   (then choose "smtp" in Settings → Mail)
+  Grant more people access:   infra/grant-access.sh someone@example.edu
+  Everything else (recipients, owners, dates, sheet, mail password) is set inside the app: Settings.
   Share the tracking sheet (Viewer) with:  $APP_SA
 MSG

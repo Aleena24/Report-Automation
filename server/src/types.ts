@@ -1,4 +1,4 @@
-/** Shared data types for the Daily Reports server. Dates are IST calendar keys `yyyy-mm-dd`. */
+/** Shared data types for the Daily Reports server. Dates are calendar keys `yyyy-mm-dd` in the configured time zone. */
 
 export interface CoursePlan {
   id: string;
@@ -52,7 +52,7 @@ export interface Faculty {
   updatedBy?: string;
 }
 
-/** A normalised row of the dev team's "Assignments" tracker (read from Google Sheets). */
+/** A normalised row of the dev team's task tracker (read from Google Sheets). */
 export interface Task {
   task: string;
   service: string;
@@ -72,7 +72,7 @@ export type MailStatus = 'SENT' | 'DRY_RUN' | 'PREVIEW' | 'SKIPPED' | 'FAILED';
 export interface MailLogEntry {
   id: string;
   timestamp: string;   // ISO instant
-  date: string;        // IST date key the mail belongs to
+  date: string;        // local date key the mail belongs to
   report: string;      // e.g. COURSE_PLANS, ATTENDANCE:NOTICE, ADMIN_ALERT
   status: MailStatus;
   to: string[];

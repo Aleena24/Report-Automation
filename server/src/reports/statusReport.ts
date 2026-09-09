@@ -1,5 +1,5 @@
 import type { BuildCtx } from './context.js';
-import { owners, isSkipDay, senderName } from './context.js';
+import { managementRecipients, owners, isSkipDay, senderName } from './context.js';
 import type { BuildResult } from '../types.js';
 import { isClosedStatus } from '../lib/status.js';
 import { addDays, niceDate, parseDateKey } from '../lib/dates.js';
@@ -8,7 +8,7 @@ import { h3, htmlTable, overdueFlag, stat, statRow, subjectLine, wrap } from '..
 
 export const STATUS_REPORT_TITLE = 'Daily Status and Query Closure Report';
 
-/** Report 4 – Daily Status & Query Closure (owner Livya), every working day before 10:00. */
+/** Report 4 – Daily Status & Query Closure every working day, before the configured deadline. */
 export async function buildStatusReport(ctx: BuildCtx): Promise<BuildResult> {
   const { cfg, todayKey } = ctx;
   if (!ctx.preview) { const s = isSkipDay(cfg, todayKey); if (s) return { skip: s, log: true }; }
@@ -66,8 +66,7 @@ export async function buildStatusReport(ctx: BuildCtx): Promise<BuildResult> {
 
   const { owner, backup } = owners(cfg, 'StatusReport');
   return {
-    to: [cfg.manishankarEmail, cfg.principalEmail],
-    cc: [cfg.gnanaKingEmail, owner.email, backup.email],
+    ...managementRecipients(cfg, cfg.statusReportTo, owner, backup),
     replyTo: owner.email,
     senderName: senderName(owner.name || 'Status'),
     subject: subjectLine(STATUS_REPORT_TITLE, todayKey),

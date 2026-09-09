@@ -3,7 +3,8 @@
  * run), records everything in the Mail Log and never sends the same report twice on one day.
  */
 import type { Config, Env } from './config.js';
-import { normalizeConfig } from './config.js';
+import { adminAddresses, normalizeConfig } from './config.js';
+import { smtpSettings } from './mailer.js';
 import type { Store } from './store.js';
 import type { SheetReader } from './sheets.js';
 import type { Mailer } from './mailer.js';
@@ -45,7 +46,7 @@ export async function loadConfig(deps: Deps): Promise<Config> {
 
 export function buildCtx(deps: Deps, cfg: Config, opts: { preview?: boolean; todayKey?: string } = {}): BuildCtx {
   const now = deps.now();
-  return { cfg, todayKey: opts.todayKey || dateKey(now), now, preview: !!opts.preview, data: makeDataSource(deps.store, deps.sheets, cfg), appUrl: cfg.appUrl };
+  return { cfg, todayKey: opts.todayKey || dateKey(now), now, preview: !!opts.preview, data: makeDataSource(deps.store, deps.sheets, cfg), appUrl: cfg.appUrl, schedule: deps.env.schedule };
 }
 
 const DONE_STATUSES: MailStatus[] = ['SENT', 'DRY_RUN', 'SKIPPED'];
@@ -57,7 +58,7 @@ export async function runReports(deps: Deps, opts: RunOptions): Promise<RunOutco
     const ctx = buildCtx(deps, cfg, { preview: opts.preview });
     const mailer = deps.mailerFor(cfg);
     const todayLog = await deps.store.mailLogForDate(ctx.todayKey);
-    const problems = opts.preview ? [] : await healthProblems(cfg, ctx);
+    const problems = opts.preview ? [] : await healthProblems(cfg, ctx, deps.env);
     const results: JobResult[] = [];
 
     const alreadyDone = (key: string) => todayLog.some((e) => (e.report === key || e.report.startsWith(key + ':')) && DONE_STATUSES.includes(e.status));
@@ -116,8 +117,8 @@ export async function deliver(mailer: Mailer, cfg: Config, mail: BuiltMail, o: {
   let status: MailStatus = 'SENT';
 
   if (dry) {
-    const target = emails(o.redirectTo || cfg.adminEmail);
-    if (!target.length) throw new Error('Dry run is on but no admin e-mail is set (Settings → Mode)');
+    const target = o.redirectTo ? emails(o.redirectTo) : adminAddresses(cfg);
+    if (!target.length) throw new Error('Dry run is on but no admin e-mail is set (Settings → Mode, or add an admin under Access)');
     const label = o.preview ? 'PREVIEW' : 'DRY RUN';
     html = dryBanner(label, to, cc, replyTo) + html;
     subject = `[${label}] ${subject}`;
@@ -132,7 +133,7 @@ export async function deliver(mailer: Mailer, cfg: Config, mail: BuiltMail, o: {
 }
 
 async function notifyAdmin(deps: Deps, cfg: Config, mailer: Mailer, ctx: BuildCtx, todayLog: MailLogEntry[], problems: string[], by: string) {
-  const admin = emails(cfg.adminEmail);
+  const admin = adminAddresses(cfg);
   if (!admin.length) { deps.log('Admin e-mail missing; problems: ' + problems.join(' | ')); return; }
   const details = problems.join(' | ');
   if (todayLog.some((e) => e.report === 'ADMIN_ALERT' && e.details === details)) return;
@@ -141,7 +142,7 @@ async function notifyAdmin(deps: Deps, cfg: Config, mailer: Mailer, ctx: BuildCt
   const html = '<div style="font-family:Arial,sans-serif;font-size:14px">' +
     `<p>The Daily Reports automation found the following problems on ${esc(niceDate(ctx.todayKey))}:</p>` +
     `<ul>${problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` +
-    `<p>Fix them in ${link}. The 9:35 retry will send anything that failed, and you can also use "Run morning reports now" in the app.</p></div>`;
+    `<p>Fix them in ${link}. ${deps.env.schedule.retry ? `The ${esc(deps.env.schedule.retry)} retry run` : 'The retry run'} will send anything that failed, and you can also use "Run morning reports" in the app.</p></div>`;
   try {
     await mailer.send({ to: admin, cc: [], senderName: APP_NAME, subject, html, text: htmlToText(html) });
     const entry = { report: 'ADMIN_ALERT', status: 'SENT' as MailStatus, to: admin, cc: [], subject, details, html, timestamp: deps.now().toISOString(), date: ctx.todayKey, by };
@@ -153,19 +154,25 @@ async function notifyAdmin(deps: Deps, cfg: Config, mailer: Mailer, ctx: BuildCt
 }
 
 /** Configuration problems that would stop mails from going out. */
-export async function healthProblems(cfg: Config, ctx: BuildCtx): Promise<string[]> {
+export async function healthProblems(cfg: Config, ctx: BuildCtx, env?: Env): Promise<string[]> {
   const p: string[] = [];
-  const need: Array<[keyof Config, string]> = [['principalEmail', 'Principal'], ['ashHodEmail', 'ASH HoD'], ['manishankarEmail', 'Dr. Manishankar'], ['gnanaKingEmail', 'Dr. G R Gnana King']];
-  for (const [k, label] of need) if (!emails(cfg[k]).length) p.push(`${label} e-mail is missing (Settings → Recipients)`);
+  const deptOverridden = emails(cfg.coursePlansTo).length > 0 && emails(cfg.studentProfilesTo).length > 0;
+  const mgmtOverridden = emails(cfg.statusReportTo).length > 0 && emails(cfg.moduleDigestTo).length > 0;
+  if (!emails(cfg.principalEmail).length) p.push('Principal e-mail is missing (Settings → Recipients)');
+  if (!deptOverridden && !emails(cfg.hodEmail).length) p.push('Head of Department e-mail is missing (Settings → Recipients)');
+  if (!mgmtOverridden && !emails(cfg.coordinatorEmail).length) p.push('Coordinator e-mail is missing (Settings → Recipients)');
+  const ownerLabels = { CoursePlans: 'Course plans', StudentProfiles: 'Student profiles', Attendance: 'Attendance window', StatusReport: 'Status & query report' } as const;
   for (const k of ['CoursePlans', 'StudentProfiles', 'Attendance', 'StatusReport'] as const) {
     const o = owners(cfg, k).owner;
-    if (!o.email) p.push(`Owner ${o.name || k} has no e-mail (Settings → Owners, format "Name <email>")`);
+    if (!o.email) p.push(o.name ? `Owner ${o.name} has no e-mail (Settings → Owners, format "Name <email>")` : `Owner – ${ownerLabels[k]} is not set (Settings → Owners, format "Name <email>")`);
   }
   if (!emails(cfg.devTeam).length) p.push('The development team has no e-mail addresses – the dev-team reminder will not be sent (Settings → Dev team)');
   const closeKey = parseDateKey(cfg.attendanceCloseDate);
   if ((!closeKey || ctx.todayKey <= closeKey) && !(await facultyEmails(ctx)).length) p.push('No faculty e-mails: set the all-faculty address or fill the Faculty list (needed for the attendance notice)');
-  if (!emails(cfg.adminEmail).length) p.push('Admin e-mail is missing (Settings → Mode)');
+  if (!adminAddresses(cfg).length) p.push('Admin e-mail is missing (Settings → Mode, or add an admin under Access)');
   if (cfg.mailTransport === 'log' && !cfg.dryRun) p.push('Mail transport is "log" – nothing is actually sent. Choose SMTP or Gmail in Settings → Mail');
+  if (cfg.mailTransport !== 'log' && !cfg.mailFrom.trim()) p.push('"Send from" address is missing (Settings → Mail)');
+  if (cfg.mailTransport === 'smtp' && env && !smtpSettings(cfg, env).pass) p.push('SMTP password is not set (Settings → Mail)');
   const tr = await ctx.data.tracker();
   if (tr.error) p.push(`Tracker spreadsheet: ${tr.error}`);
   return p;
@@ -180,7 +187,7 @@ export interface ReportToday {
   detail: string; to: string[]; subject: string; logId?: string; at?: string;
 }
 export interface Overview {
-  date: string; dateNice: string; dryRun: boolean; transport: string; problems: string[];
+  date: string; dateNice: string; dryRun: boolean; transport: string; problems: string[]; schedule: Env['schedule'];
   reports: ReportToday[];
   counts: { pendingCoursePlans: number; pendingProfiles: number; openQueries: number; tasksInProgress: number; tasksOverdue: number; trackerError?: string };
 }
@@ -190,7 +197,7 @@ export async function overview(deps: Deps): Promise<Overview> {
   const ctx = buildCtx(deps, cfg);
   const mailer = deps.mailerFor(cfg);
   const todayLog = await deps.store.mailLogForDate(ctx.todayKey);
-  const problems = await healthProblems(cfg, ctx);
+  const problems = await healthProblems(cfg, ctx, deps.env);
 
   const reports: ReportToday[] = [];
   for (const def of REPORTS) {
@@ -198,7 +205,7 @@ export async function overview(deps: Deps): Promise<Overview> {
     const entries = todayLog.filter((e) => (e.report === def.key || e.report.startsWith(def.key + ':')) && e.status !== 'PREVIEW').sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     const done = [...entries].reverse().find((e) => DONE_STATUSES.includes(e.status));
     const last = entries[entries.length - 1];
-    const base = { key: def.key, title: def.title, batch: def.batch, when: def.when, page: def.page, owner };
+    const base = { key: def.key, title: def.title, batch: def.batch, when: def.when(cfg), page: def.page, owner };
     if (done) {
       reports.push({ ...base, status: done.status as ReportToday['status'], detail: done.details, to: done.to, subject: done.subject, logId: done.id, at: done.timestamp });
       continue;
@@ -218,7 +225,7 @@ export async function overview(deps: Deps): Promise<Overview> {
   const [plans, profiles, queries, tr] = await Promise.all([ctx.data.coursePlans(), ctx.data.studentProfiles(), ctx.data.queries(), ctx.data.tracker()]);
   const active = tr.tasks.filter((t) => t.active);
   return {
-    date: ctx.todayKey, dateNice: niceDate(ctx.todayKey), dryRun: cfg.dryRun, transport: mailer.describe(), problems, reports,
+    date: ctx.todayKey, dateNice: niceDate(ctx.todayKey), dryRun: cfg.dryRun, transport: mailer.describe(), problems, reports, schedule: deps.env.schedule,
     counts: {
       pendingCoursePlans: plans.filter((p) => isPendingStatus(p.status)).length,
       pendingProfiles: profiles.filter((s) => !s.created).reduce((n, s) => n + (s.studentName ? 1 : Number(s.count) || 0), 0),

@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Store the Gmail App Password used to send mail via SMTP, and wire it into the service and the job.
-# 1. Sign in to Google as the sending account (Settings → Mail → "Send from", e.g. automation@sahrdaya.ac.in)
-# 2. Google Account → Security → 2-Step Verification (must be ON) → App passwords → create one
-# 3. Run this script and paste the 16-character password when asked.
+# OPTIONAL. The normal way to set the SMTP / app password is Settings → Mail inside the app.
+# Use this script only if you prefer to keep the password in Secret Manager: it is then injected as the
+# SMTP_PASS environment variable, which the app uses whenever no password is stored in Settings.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source infra/config.sh
-read -r -s -p "App password for the sending account: " PASS; echo
+read -r -s -p "SMTP / app password for the sending account: " PASS; echo
 PASS="$(echo "$PASS" | tr -d ' ')"
 [ -n "$PASS" ] || { echo "empty password"; exit 1; }
 if gcloud secrets describe "$SMTP_SECRET" --project "$PROJECT_ID" >/dev/null 2>&1; then
@@ -17,4 +16,4 @@ fi
 gcloud secrets add-iam-policy-binding "$SMTP_SECRET" --member="serviceAccount:$APP_SA" --role=roles/secretmanager.secretAccessor --project "$PROJECT_ID" --quiet >/dev/null
 gcloud run services update "$SERVICE" --region "$REGION" --update-secrets "SMTP_PASS=${SMTP_SECRET}:latest" --project "$PROJECT_ID" --quiet >/dev/null
 gcloud run jobs update "$JOB" --region "$REGION" --update-secrets "SMTP_PASS=${SMTP_SECRET}:latest" --project "$PROJECT_ID" --quiet >/dev/null
-echo "Stored. Now open $APP_URL → Settings → Mail → transport 'smtp' → Save → 'Send a test mail to me'."
+echo "Stored. Now open $APP_URL → Settings → Mail → transport 'smtp', fill 'Send from' → Save → 'Send a test mail to me'."

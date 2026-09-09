@@ -1,5 +1,5 @@
 import { DASH, esc, numOr } from './text.js';
-import { fmtDateTime, longDate, niceDate } from './dates.js';
+import { fmtDateTime, longDate, niceDate, TZ } from './dates.js';
 import type { Person } from './text.js';
 
 const NAVY = '#1f4e79';
@@ -68,12 +68,12 @@ export function wrap(o: WrapOpts): string {
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;max-width:960px;line-height:1.45">` +
     `<div style="background:${NAVY};color:#fff;padding:14px 18px;border-radius:6px 6px 0 0">` +
     `<div style="font-size:18px;font-weight:bold">${esc(o.title)}</div>` +
-    `<div style="font-size:13px;opacity:.9;margin-top:2px">${esc(o.orgName || 'Sahrdaya')} &middot; ${esc(longDate(o.todayKey))}${o.subtitle ? ' &middot; ' + esc(o.subtitle) : ''}</div></div>` +
+    `<div style="font-size:13px;opacity:.9;margin-top:2px">${[o.orgName, longDate(o.todayKey), o.subtitle].filter(Boolean).map(esc).join(' &middot; ')}</div></div>` +
     `<div style="border:1px solid #d0d7de;border-top:0;padding:16px 18px;border-radius:0 0 6px 6px">` +
     `<p style="margin-top:0">${esc(o.salutation || 'Dear Sir/Madam,')}</p>` +
     o.body +
     `<p style="margin-bottom:0">Regards,<br><strong>${ownerLine}</strong>${backupLine}</p></div>` +
-    `<p style="color:#666;font-size:12px;margin-top:10px">Generated automatically by ${source} at ${esc(fmtDateTime(o.now))} IST. Replies go to the report owner.</p></div>`;
+    `<p style="color:#666;font-size:12px;margin-top:10px">Generated automatically by ${source} at ${esc(fmtDateTime(o.now))} (${esc(TZ)}). Replies go to the report owner.</p></div>`;
 }
 
 export function dryBanner(label: string, to: string[], cc: string[], replyTo: string): string {

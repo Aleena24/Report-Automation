@@ -73,9 +73,9 @@ export default function Today() {
         <Stat to="/tracker" value={d.counts.trackerError ? '!' : `${d.counts.tasksInProgress}${d.counts.tasksOverdue ? ` / ${d.counts.tasksOverdue}` : ''}`} label={d.counts.trackerError ? 'Tracker unreadable' : d.counts.tasksOverdue ? 'Tasks in progress / overdue' : 'Tasks in progress'} bad={!!d.counts.trackerError || d.counts.tasksOverdue > 0} />
       </div>
 
-      <h2 style={{ margin: '6px 0 8px' }}>Morning · 09:00 IST</h2>
+      <h2 style={{ margin: '6px 0 8px' }}>Morning{d.schedule.morning ? ` · ${d.schedule.morning}` : ''}</h2>
       {morning.map((r) => <ReportCard key={r.key} r={r} />)}
-      <h2 style={{ margin: '14px 0 8px' }}>Evening · 17:30 IST</h2>
+      <h2 style={{ margin: '14px 0 8px' }}>Evening{d.schedule.evening ? ` · ${d.schedule.evening}` : ''}</h2>
       {evening.map((r) => <ReportCard key={r.key} r={r} />)}
 
       <Card>

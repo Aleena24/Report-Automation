@@ -6,6 +6,7 @@ import { Banner, Button, Card, ErrorBox, Field, Loader, PageHead } from '../comp
 import { useToast } from '../components/toast';
 
 const GROUP_ORDER = ['Mode', 'Recipients', 'Owners', 'Dev team', 'Schedule', 'Google Sheet', 'Mail', 'Access'];
+const MAIL_KEYS = ['mailTransport', 'mailFrom', 'smtpHost', 'smtpPort', 'smtpUser', 'smtpPassword'];
 
 export default function Settings() {
   const qc = useQueryClient();
@@ -17,14 +18,23 @@ export default function Settings() {
   const [sheet, setSheet] = useState<Record<string, unknown> | null>(null);
   useEffect(() => { if (q.data && !dirty) setDraft(q.data.config); }, [q.data, dirty]);
 
+  const invalidate = () => { qc.invalidateQueries({ queryKey: qk.settings }); qc.invalidateQueries({ queryKey: qk.me }); qc.invalidateQueries({ queryKey: qk.today }); };
   const save = useMutation({
     mutationFn: (patch: Record<string, unknown>) => api<{ config: Record<string, unknown> }>('/settings', { method: 'PUT', body: patch }),
-    onSuccess: () => { toast('Settings saved', 'good'); setDirty(false); qc.invalidateQueries({ queryKey: qk.settings }); qc.invalidateQueries({ queryKey: qk.me }); qc.invalidateQueries({ queryKey: qk.today }); },
+    onSuccess: () => { toast('Settings saved', 'good'); setDirty(false); invalidate(); },
     onError: (e) => toast((e as Error).message, 'bad'),
   });
   const testMail = useMutation({
-    mutationFn: () => api<{ note: string; to: string; transport: string }>('/settings/test-mail', { method: 'POST', body: {} }),
+    mutationFn: () => {
+      const settings: Record<string, unknown> = {};
+      for (const k of MAIL_KEYS) if (draft[k] !== q.data?.config[k] && !(k === 'smtpPassword' && !draft[k])) settings[k] = draft[k];
+      return api<{ note: string; to: string; transport: string }>('/settings/test-mail', { method: 'POST', body: Object.keys(settings).length ? { settings } : {} });
+    },
     onSuccess: (r) => toast(`${r.note} (${r.transport} → ${r.to})`, 'good'), onError: (e) => toast((e as Error).message, 'bad'),
+  });
+  const forgetPassword = useMutation({
+    mutationFn: () => api<{ ok: boolean }>('/settings/smtp-password', { method: 'DELETE' }),
+    onSuccess: () => { toast('Stored password removed'); invalidate(); }, onError: (e) => toast((e as Error).message, 'bad'),
   });
   const testSheet = useMutation({
     mutationFn: () => api<Record<string, unknown>>('/settings/test-sheet', { method: 'POST', body: { sheetId: draft.sheetId, tab: draft.trackerTab } }),
@@ -55,6 +65,9 @@ export default function Settings() {
     if (!Object.keys(patch).length) { toast('Nothing changed'); return; }
     save.mutate(patch);
   };
+  const transport = String(draft.mailTransport || 'log');
+  const isMailField = (key: string) => key === 'mailTransport' || key === 'mailFrom' || (transport === 'smtp' && key.startsWith('smtp'));
+  const adminTarget = String(draft.adminEmail || '').trim() || String(draft.admins || '').split(/[,;\s]+/).filter(Boolean)[0] || '(no admin address yet)';
 
   return (
     <>
@@ -64,7 +77,7 @@ export default function Settings() {
         {!readOnly && <Button variant="primary" onClick={submitPatch} busy={save.isPending} disabled={!dirty}>Save changes</Button>}
       </PageHead>
       {health && (health.length ? <Banner tone="amber"><div><b>Problems</b><ul className="plain">{health.map((p) => <li key={p}>{p}</li>)}</ul></div></Banner> : <Banner tone="green">Configuration looks complete.</Banner>)}
-      {draft.dryRun === true && <Banner tone="navy">Dry run is on: every mail goes only to <b>{String(draft.adminEmail)}</b>, with the real recipients shown in a banner. Switch it off below when the previews look right.</Banner>}
+      {draft.dryRun === true && <Banner tone="navy">Dry run is on: every mail goes only to <b>{adminTarget}</b>, with the real recipients shown in a banner. Switch it off below when the previews look right.</Banner>}
 
       {groups.map((g) => (
         <Card key={g.name} title={g.name}>
@@ -81,16 +94,39 @@ export default function Settings() {
           )}
           {g.name === 'Mail' && (
             <div className="banner navy" style={{ display: 'block' }}>
-              <div className="small">Current transport: <b>{meta.transport}</b>{draft.mailTransport === 'smtp' && !meta.smtpConfigured && <span style={{ color: 'var(--red)' }}> – SMTP password not set: run <code>infra/set-smtp-password.sh</code></span>}</div>
-              <div className="small muted" style={{ marginTop: 4 }}>
-                <b>smtp</b>: sign in as {String(draft.mailFrom)}, create an App Password (Google Account → Security → 2-Step Verification → App passwords) and store it with <code>infra/set-smtp-password.sh</code>.<br />
-                <b>gmail</b>: a Workspace super-admin authorises the service account above for scope <code>https://www.googleapis.com/auth/gmail.send</code> under Admin console → Security → API controls → Domain-wide delegation. No password needed.
+              <div className="small">Current transport: <b>{meta.transport}</b></div>
+              {transport === 'smtp' && (
+                <div className="small muted" style={{ marginTop: 6 }}>
+                  <b>Set up in 2 minutes (Google Workspace / Gmail):</b>
+                  <ol style={{ margin: '4px 0 4px 18px', padding: 0 }}>
+                    <li>Sign in to Google as the <b>Send from</b> mailbox{draft.mailFrom ? <> (<b>{String(draft.mailFrom)}</b>)</> : null}.</li>
+                    <li>Turn on 2-Step Verification, then open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">myaccount.google.com/apppasswords</a> and create an app password named "Daily Reports".</li>
+                    <li>Paste the 16-character password below, press <b>Send a test mail to me</b>, then <b>Save changes</b>.</li>
+                  </ol>
+                  Password status: {meta.smtpConfigured ? <span style={{ color: 'var(--green)' }}>stored ({meta.smtpPasswordSource})</span> : <span style={{ color: 'var(--red)' }}>not set</span>}.
+                  {' '}Any other SMTP server works too: fill in the server, port and user.
+                </div>
+              )}
+              {transport === 'gmail' && (
+                <div className="small muted" style={{ marginTop: 6 }}>
+                  No password needed. A Google Workspace <b>super-admin</b> authorises the service account <span className="mono">{meta.serviceAccountEmail || '(service account)'}</span> for the scope <code>https://www.googleapis.com/auth/gmail.send</code> under
+                  Admin console → Security → Access and data control → API controls → <b>Manage Domain-wide delegation</b> (use the service account's <i>client ID</i>, shown in the Cloud console). Then press <b>Send a test mail to me</b>.
+                </div>
+              )}
+              {transport === 'log' && <div className="small muted" style={{ marginTop: 6 }}>Nothing is sent while the transport is <b>log</b>. Choose <b>smtp</b> (password) or <b>gmail</b> (delegation) to send real mail.</div>}
+              <div className="row" style={{ marginTop: 6 }}>
+                <Button size="sm" onClick={() => testMail.mutate()} busy={testMail.isPending}>Send a test mail to me</Button>
+                {!readOnly && meta.smtpPasswordSource === 'settings' && <Button size="sm" variant="ghost" onClick={() => { if (confirm('Remove the stored SMTP password?')) forgetPassword.mutate(); }} busy={forgetPassword.isPending}>Remove stored password</Button>}
               </div>
-              <div style={{ marginTop: 6 }}><Button size="sm" onClick={() => testMail.mutate()} busy={testMail.isPending}>Send a test mail to me</Button></div>
+              {dirty && <div className="tiny muted" style={{ marginTop: 4 }}>The test uses the values on screen; remember to Save.</div>}
             </div>
+          )}
+          {g.name === 'Access' && meta.adminsOpen && (
+            <Banner tone="amber">No admins are listed yet, so <b>everyone who can open the app is an admin</b>. Add at least your own address below.</Banner>
           )}
           <div className="form-grid">
             {g.fields.map((f) => {
+              if (g.name === 'Mail' && !isMailField(f.key)) return null;
               const v = draft[f.key];
               if (f.type === 'boolean') return <label key={f.key} className="check full"><input type="checkbox" disabled={readOnly} checked={!!v} onChange={(e) => set(f.key, e.target.checked)} /> <span><b>{f.label}</b>{f.help && <div className="help muted small">{f.help}</div>}</span></label>;
               const full = f.type === 'textarea';
@@ -99,6 +135,7 @@ export default function Settings() {
                   {f.type === 'select' ? <select disabled={readOnly} value={String(v ?? '')} onChange={(e) => set(f.key, e.target.value)}>{f.options?.map((o) => <option key={o} value={o}>{o}</option>)}</select>
                     : f.type === 'textarea' ? <textarea disabled={readOnly} value={String(v ?? '')} onChange={(e) => set(f.key, e.target.value)} />
                     : f.type === 'number' ? <input type="number" min={1} disabled={readOnly} value={String(v ?? '')} onChange={(e) => set(f.key, Number(e.target.value))} />
+                    : f.type === 'password' ? <input type="password" autoComplete="new-password" disabled={readOnly} value={String(v ?? '')} placeholder={meta.smtpConfigured ? '•••••••••••••••• (stored – type to replace)' : ''} onChange={(e) => set(f.key, e.target.value)} />
                     : <input type="text" disabled={readOnly} value={String(v ?? '')} onChange={(e) => set(f.key, e.target.value)} />}
                 </Field>
               );
@@ -110,7 +147,7 @@ export default function Settings() {
       <Card title="Schedule (Cloud Scheduler → Cloud Run job)">
         <div className="table-wrap" style={{ border: 0 }}><table className="tbl"><thead><tr><th>Job</th><th>Time</th><th>What</th></tr></thead>
           <tbody>{meta.schedule.map((s) => <tr key={s.job}><td>{s.job}</td><td>{s.time}</td><td className="small">{s.note}</td></tr>)}</tbody></table></div>
-        <p className="muted tiny" style={{ marginTop: 8 }}>Project {meta.projectId || '—'} · {meta.region} · sign-in: {meta.authMode} · app URL: {meta.appUrl || '—'}</p>
+        <p className="muted tiny" style={{ marginTop: 8 }}>Project {meta.projectId || '—'} · {meta.region || '—'} · sign-in: {meta.authMode} · app URL: {meta.appUrl || '—'}</p>
       </Card>
       {!readOnly && dirty && <div style={{ position: 'sticky', bottom: 'calc(var(--nav-h) + 12px)', display: 'flex', justifyContent: 'flex-end' }}><Button variant="primary" onClick={submitPatch} busy={save.isPending}>Save changes</Button></div>}
     </>

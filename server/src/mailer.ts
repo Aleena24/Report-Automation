@@ -23,32 +23,53 @@ export class LogMailer implements Mailer {
     if (this.failWith) throw new Error(this.failWith);
     this.sent.push(m);
   }
-  describe() { return 'Not sending – mails are only recorded in the Mail Log. Choose SMTP or Gmail in Settings to send for real.'; }
+  describe() { return 'Not sending – mails are only recorded in the Mail Log. Choose SMTP or Gmail in Settings → Mail to send for real.'; }
 }
 
 function fromHeader(name: string, from: string): string {
   return `"${(name || APP_NAME).replace(/"/g, "'")}" <${from}>`;
 }
 
-/** Gmail SMTP with an App Password (2-step verification must be on for the sending account). */
+/** The effective SMTP connection: values from Settings first, environment variables as a fallback. */
+export function smtpSettings(cfg: Config, env: Env) {
+  const from = cfg.mailFrom.trim();
+  return {
+    from,
+    host: cfg.smtpHost.trim() || env.smtpHost,
+    port: cfg.smtpPort || env.smtpPort || 465,
+    user: cfg.smtpUser.trim() || env.smtpUser || from,
+    pass: cfg.smtpPassword || env.smtpPass,
+    passSource: cfg.smtpPassword ? 'settings' : env.smtpPass ? 'environment' : '',
+  };
+}
+
+/** Any SMTP server with a password – for Google Workspace / Gmail that is an App Password (2-step verification on). */
 export class SmtpMailer implements Mailer {
   readonly kind = 'smtp';
   private transport: Transporter;
-  constructor(private from: string, private env: Env) {
+  private s: ReturnType<typeof smtpSettings>;
+  constructor(cfg: Config, env: Env) {
+    this.s = smtpSettings(cfg, env);
     this.transport = nodemailer.createTransport({
-      host: env.smtpHost, port: env.smtpPort, secure: env.smtpPort === 465,
-      auth: { user: env.smtpUser || from, pass: env.smtpPass },
+      host: this.s.host, port: this.s.port, secure: this.s.port === 465,
+      auth: { user: this.s.user, pass: this.s.pass },
     });
   }
+  private check() {
+    if (!this.s.from) throw new Error('"Send from" address not set (Settings → Mail)');
+    if (!this.s.host) throw new Error('SMTP server not set (Settings → Mail)');
+    if (!this.s.pass) throw new Error('SMTP password not set (Settings → Mail)');
+  }
   async send(m: OutgoingMail) {
-    if (!this.env.smtpPass) throw new Error('SMTP password not configured (run infra/set-smtp-password.sh)');
+    this.check();
     await this.transport.sendMail({
-      from: fromHeader(m.senderName, this.from), to: m.to.join(', '), cc: m.cc.length ? m.cc.join(', ') : undefined,
+      from: fromHeader(m.senderName, this.s.from), to: m.to.join(', '), cc: m.cc.length ? m.cc.join(', ') : undefined,
       replyTo: m.replyTo || undefined, subject: m.subject, html: m.html, text: m.text,
     });
   }
   describe() {
-    return `Gmail SMTP as ${this.env.smtpUser || this.from} via ${this.env.smtpHost}:${this.env.smtpPort}` + (this.env.smtpPass ? '' : ' – PASSWORD NOT SET');
+    const missing = [!this.s.from && '"Send from" not set', !this.s.host && 'server not set', !this.s.pass && 'PASSWORD NOT SET'].filter(Boolean);
+    return `SMTP as ${this.s.user || '?'} via ${this.s.host || '?'}:${this.s.port}` + (missing.length ? ` – ${missing.join(', ')}` : '');
   }
 }
 
@@ -94,6 +115,7 @@ export class GmailDelegatedMailer implements Mailer {
   }
 
   async send(m: OutgoingMail) {
+    if (!this.from) throw new Error('"Send from" address not set (Settings → Mail)');
     const composer = new MailComposer({
       from: fromHeader(m.senderName, this.from), to: m.to.join(', '), cc: m.cc.length ? m.cc.join(', ') : undefined,
       replyTo: m.replyTo || undefined, subject: m.subject, html: m.html, text: m.text,
@@ -106,13 +128,13 @@ export class GmailDelegatedMailer implements Mailer {
     });
     if (!res.ok) throw new Error(`Gmail API error ${res.status}: ${(await res.text()).slice(0, 300)}`);
   }
-  describe() { return `Gmail API as ${this.from} via domain-wide delegation of the service account`; }
+  describe() { return `Gmail API as ${this.from || '? ("Send from" not set)'} via domain-wide delegation of the service account`; }
 }
 
 export function createMailer(cfg: Config, env: Env): Mailer {
   switch (cfg.mailTransport) {
-    case 'smtp': return new SmtpMailer(cfg.mailFrom, env);
-    case 'gmail': return new GmailDelegatedMailer(cfg.mailFrom);
+    case 'smtp': return new SmtpMailer(cfg, env);
+    case 'gmail': return new GmailDelegatedMailer(cfg.mailFrom.trim());
     default: return new LogMailer();
   }
 }

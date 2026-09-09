@@ -1,8 +1,8 @@
 import type { BuildCtx } from './context.js';
-import { owners, isSkipDay, senderName } from './context.js';
+import { managementRecipients, owners, isSkipDay } from './context.js';
 import type { BuildResult, Task } from '../types.js';
 import { niceDate } from '../lib/dates.js';
-import { APP_NAME, DASH, emails, esc, isEmail, people, sameFirstName } from '../lib/text.js';
+import { APP_NAME, DASH, esc, isEmail, people, sameFirstName } from '../lib/text.js';
 import { h3, htmlTable, overdueFlag, stat, statRow, subjectLine, wrap } from '../lib/html.js';
 
 export const MODULE_DIGEST_TITLE = 'Module Completion & Testing Status';
@@ -27,7 +27,7 @@ export async function buildDevTeamReminder(ctx: BuildCtx): Promise<BuildResult> 
     '<li>When something is finished, set Status to <em>Done</em> and fill the <strong>Finished date</strong>.</li>' +
     '<li>Fill <strong>Due on</strong> for tasks in progress and note blockers in <strong>remarks</strong>.</li></ul>' +
     `<p>Expected from: <strong>${esc(team.map((p) => p.name).filter(Boolean).join(', ') || 'the development team')}</strong>.</p>` +
-    '<p style="color:#555;font-size:13px">At 5:30 PM a digest of tasks finished today, tasks in progress and anyone with nothing updated goes to Dr. Manishankar and the Principal.</p>';
+    `<p style="color:#555;font-size:13px">${ctx.schedule.evening ? `At ${esc(ctx.schedule.evening)} ` : 'In the evening '}a digest of tasks finished today, tasks in progress and anyone with nothing updated goes to the management.</p>`;
   return {
     to,
     cc: [owner.email],
@@ -39,7 +39,7 @@ export async function buildDevTeamReminder(ctx: BuildCtx): Promise<BuildResult> 
   };
 }
 
-/** Report 5b – 17:30 digest of module completion & testing status from the tracker. */
+/** Report 5b – evening digest of module completion & testing status from the tracker. */
 export async function buildModuleDigest(ctx: BuildCtx): Promise<BuildResult> {
   const { cfg, todayKey } = ctx;
   if (!ctx.preview) { const s = isSkipDay(cfg, todayKey); if (s) return { skip: s, log: true }; }
@@ -97,10 +97,8 @@ export async function buildModuleDigest(ctx: BuildCtx): Promise<BuildResult> {
     (unassigned ? `<p style="color:#555;font-size:13px">${unassigned} open task${unassigned === 1 ? '' : 's'} not yet assigned to anyone.</p>` : '');
 
   const { owner } = owners(cfg, 'StatusReport');
-  const digestTo = emails(cfg.moduleDigestTo);
   return {
-    to: digestTo.length ? digestTo : [cfg.manishankarEmail, cfg.principalEmail],
-    cc: [cfg.manishankarEmail, cfg.principalEmail, cfg.gnanaKingEmail, owner.email],
+    ...managementRecipients(cfg, cfg.moduleDigestTo, owner),
     replyTo: owner.email,
     senderName: APP_NAME,
     subject: subjectLine(MODULE_DIGEST_TITLE, todayKey),

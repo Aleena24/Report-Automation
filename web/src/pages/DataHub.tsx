@@ -7,12 +7,14 @@ import { PageHead } from '../components/ui';
 export default function DataHub() {
   const ov = useQuery({ queryKey: qk.today, queryFn: () => api<Overview>('/today') });
   const c = ov.data?.counts;
+  const owner = (key: string) => ov.data?.reports.find((r) => r.key === key)?.owner || '';
+  const report = (key: string, what: string) => { const o = owner(key); return o ? `${what} (${o})` : what; };
   const cards = [
-    { to: '/course-plans', title: 'Course plans', sub: 'Pending approvals → George\'s morning report', n: c?.pendingCoursePlans, l: 'pending' },
-    { to: '/student-profiles', title: 'Student profiles', sub: 'Profiles not yet created → Aleena\'s morning report', n: c?.pendingProfiles, l: 'pending' },
-    { to: '/queries', title: 'Queries', sub: 'E-mail and Celerscet queries → Livya\'s status report', n: c?.openQueries, l: 'open' },
-    { to: '/tracker', title: 'Dev tracker', sub: 'Assignments sheet → status report & 17:30 digest', n: c?.tasksInProgress, l: 'in progress' },
-    { to: '/faculty', title: 'Faculty', sub: 'Recipients of the attendance notice → Ashwin', n: undefined, l: '' },
+    { to: '/course-plans', title: 'Course plans', sub: `Pending approvals → ${report('COURSE_PLANS', 'morning course-plan report')}`, n: c?.pendingCoursePlans, l: 'pending' },
+    { to: '/student-profiles', title: 'Student profiles', sub: `Profiles not yet created → ${report('STUDENT_PROFILES', 'morning student-profile report')}`, n: c?.pendingProfiles, l: 'pending' },
+    { to: '/queries', title: 'Queries', sub: `E-mail and ERP queries → ${report('STATUS_REPORT', 'daily status & query closure report')}`, n: c?.openQueries, l: 'open' },
+    { to: '/tracker', title: 'Dev tracker', sub: 'Task tracker sheet → status report & evening digest', n: c?.tasksInProgress, l: 'in progress' },
+    { to: '/faculty', title: 'Faculty', sub: `Recipients of the attendance notice${owner('ATTENDANCE') ? ` (${owner('ATTENDANCE')})` : ''}`, n: undefined, l: '' },
   ];
   return (
     <>

@@ -1,30 +1,37 @@
 /**
- * Date helpers. Every "date" that the reports reason about is an IST calendar day
- * represented as a key string `yyyy-mm-dd`; instants (`Date`) are converted with `dateKey`.
- * IST has no daylight saving, so a fixed +05:30 offset is exact.
+ * Date helpers. Every "date" that the reports reason about is a calendar day in the configured time zone
+ * (SCHEDULE_TZ, default Asia/Kolkata), represented as a key string `yyyy-mm-dd`; instants (`Date`) are
+ * converted with `dateKey`.
  */
-export const TZ = 'Asia/Kolkata';
-const IST_OFFSET_MS = 330 * 60 * 1000;
+export const TZ = process.env.SCHEDULE_TZ || 'Asia/Kolkata';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** IST calendar date of an instant, as `yyyy-mm-dd`. */
+const FMT = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+/** Calendar fields of an instant in the configured time zone. */
+export function localParts(d: Date): { year: number; month: number; day: number; hour: number; minute: number } {
+  const p: Record<string, number> = {};
+  for (const x of FMT.formatToParts(d)) if (x.type !== 'literal') p[x.type] = Number(x.value);
+  return { year: p.year, month: p.month, day: p.day, hour: p.hour % 24, minute: p.minute };
+}
+
+/** Local calendar date of an instant, as `yyyy-mm-dd`. */
 export function dateKey(d: Date): string {
-  const t = new Date(d.getTime() + IST_OFFSET_MS);
-  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
+  const t = localParts(d);
+  return `${t.year}-${pad(t.month)}-${pad(t.day)}`;
 }
 
-/** Hour and minute in IST. */
-export function timeIST(d: Date): { hour: number; minute: number } {
-  const t = new Date(d.getTime() + IST_OFFSET_MS);
-  return { hour: t.getUTCHours(), minute: t.getUTCMinutes() };
+/** Hour and minute in the configured time zone. */
+export function localTime(d: Date): { hour: number; minute: number } {
+  const t = localParts(d);
+  return { hour: t.hour, minute: t.minute };
 }
 
-/** `dd MMM yyyy, HH:mm` in IST – used in mail footers. */
+/** `dd MMM yyyy, HH:mm` in the configured time zone – used in mail footers. */
 export function fmtDateTime(d: Date): string {
-  const t = new Date(d.getTime() + IST_OFFSET_MS);
-  return `${pad(t.getUTCDate())} ${MONTHS[t.getUTCMonth()]} ${t.getUTCFullYear()}, ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}`;
+  const t = localParts(d);
+  return `${pad(t.day)} ${MONTHS[t.month - 1]} ${t.year}, ${pad(t.hour)}:${pad(t.minute)}`;
 }
 
 export function isDateKey(s: unknown): s is string {

@@ -22,9 +22,9 @@ test('dates: parsing, IST keys, formatting', () => {
 });
 
 test('people and e-mail lists', () => {
-  assert.deepEqual(parsePerson('George <George@Sahrdaya.ac.in>'), { name: 'George', email: 'george@sahrdaya.ac.in' });
-  assert.deepEqual(parsePerson('ashwin@sahrdaya.ac.in'), { name: 'Ashwin', email: 'ashwin@sahrdaya.ac.in' });
-  assert.deepEqual(parsePerson('Ashwin <>'), { name: 'Ashwin', email: '' });
+  assert.deepEqual(parsePerson('Gopal <Gopal@Example.edu>'), { name: 'Gopal', email: 'gopal@example.edu' });
+  assert.deepEqual(parsePerson('arjun@example.edu'), { name: 'Arjun', email: 'arjun@example.edu' });
+  assert.deepEqual(parsePerson('Arjun <>'), { name: 'Arjun', email: '' });
   assert.deepEqual(emails('a@x.in, A@x.in; b@x.in\nnot-an-email'), ['a@x.in', 'b@x.in']);
 });
 
@@ -36,8 +36,8 @@ test('tracker table: header on row 3, blank column, placeholders', () => {
   assert.equal(tasks.length, 9, 'rows without a task name dropped');
   const cur = tasks.find((x) => /curriculum/.test(x.task))!;
   assert.equal(cur.finished, '2026-09-08');
-  assert.equal(cur.person, 'Anugraha K R');
-  assert.equal(tasks.find((x) => /attendance correction/.test(x.task))!.person, 'Joshua Sony', 'trailing space trimmed');
+  assert.equal(cur.person, 'Anand K R');
+  assert.equal(tasks.find((x) => /attendance correction/.test(x.task))!.person, 'Jomon Paul', 'trailing space trimmed');
   assert.equal(tasks.filter((x) => x.active).length, 4);
   assert.equal(tasks.find((x) => /library/.test(x.task))!.person, '', '"select" placeholder is blank');
 });
@@ -63,9 +63,9 @@ test('pasted student profiles: per-student and group-count layouts, CSV too', ()
 
 test('pasted queries and faculty', () => {
   const q = queriesFromTable(parseTable([['Date Received', 'Source', 'Raised By', 'Query', 'Status', 'Closed On', 'Closure Remarks', 'Handled By'],
-    ['07/09/2026', 'email', 'Dr. A', 'Cannot upload', 'closed', '07/09/2026', 'Fixed', 'Anusree'], ['08/09/2026', 'Celerscet portal', 'HoD', 'Clash', '', '', '', '']]));
+    ['07/09/2026', 'email', 'Dr. A', 'Cannot upload', 'closed', '07/09/2026', 'Fixed', 'Priya'], ['08/09/2026', 'Celerscet portal', 'HoD', 'Clash', '', '', '', '']]));
   assert.equal(q[0].status, 'Closed'); assert.equal(q[0].source, 'Email'); assert.equal(q[0].closedOn, '2026-09-07');
   assert.equal(q[1].status, 'Open'); assert.equal(q[1].source, 'Celerscet');
-  const f = facultyFromTable(parseTable([['Name', 'Email', 'Department'], ['Dr. A', 'A@sahrdaya.ac.in', 'CSE'], ['', '', '']]));
-  assert.deepEqual(f, [{ name: 'Dr. A', email: 'a@sahrdaya.ac.in', department: 'CSE' }]);
+  const f = facultyFromTable(parseTable([['Name', 'Email', 'Department'], ['Dr. A', 'A@example.edu', 'CSE'], ['', '', '']]));
+  assert.deepEqual(f, [{ name: 'Dr. A', email: 'a@example.edu', department: 'CSE' }]);
 });

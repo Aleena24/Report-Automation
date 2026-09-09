@@ -1,5 +1,5 @@
 import type { BuildCtx } from './context.js';
-import { owners, isSkipDay, senderName } from './context.js';
+import { departmentRecipients, owners, isSkipDay, senderName } from './context.js';
 import type { BuildResult } from '../types.js';
 import { niceDate } from '../lib/dates.js';
 import { DASH, esc } from '../lib/text.js';
@@ -7,7 +7,7 @@ import { htmlTable, subjectLine, wrap } from '../lib/html.js';
 
 export const STUDENT_PROFILES_TITLE = 'Pending Student Profile Creation';
 
-/** Report 2 – Pending Student Profile Creation (owner Aleena), every working day. */
+/** Report 2 – Pending Student Profile Creation every working day. */
 export async function buildStudentProfileReport(ctx: BuildCtx): Promise<BuildResult> {
   const { cfg, todayKey } = ctx;
   if (!ctx.preview) { const s = isSkipDay(cfg, todayKey); if (s) return { skip: s, log: true }; }
@@ -43,8 +43,7 @@ export async function buildStudentProfileReport(ctx: BuildCtx): Promise<BuildRes
       (perStudent ? `<p style="color:#555;font-size:12px">Student-wise details are in the Daily Reports app${ctx.appUrl ? ` (<a href="${esc(ctx.appUrl)}/student-profiles">Student Profiles</a>)` : ''}.</p>` : '');
   }
   return {
-    to: [cfg.principalEmail, cfg.ashHodEmail],
-    cc: [cfg.manishankarEmail, cfg.gnanaKingEmail, owner.email, backup.email],
+    ...departmentRecipients(cfg, cfg.studentProfilesTo, owner, backup),
     replyTo: owner.email,
     senderName: senderName(owner.name || 'Student Profiles'),
     subject: subjectLine(STUDENT_PROFILES_TITLE, todayKey),

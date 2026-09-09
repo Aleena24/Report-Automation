@@ -1,11 +1,11 @@
 import type { BuildCtx } from './context.js';
-import { facultyEmails, owners, senderName } from './context.js';
+import { attendanceCc, facultyEmails, owners, senderName } from './context.js';
 import type { BuildResult } from '../types.js';
 import { daysBetween, longDate, niceDate, parseDateKey, parseDateList } from '../lib/dates.js';
 import { DASH, esc } from '../lib/text.js';
 import { wrap } from '../lib/html.js';
 
-/** Report 3 – Attendance Correction Window: one-time notice, reminder(s), final reminder (owner Ashwin). */
+/** Report 3 – Attendance Correction Window: one-time notice, reminder(s), final reminder, on the configured dates. */
 export async function buildAttendanceMail(ctx: BuildCtx): Promise<BuildResult> {
   const { cfg, todayKey } = ctx;
   const closeKey = parseDateKey(cfg.attendanceCloseDate);
@@ -17,6 +17,7 @@ export async function buildAttendanceMail(ctx: BuildCtx): Promise<BuildResult> {
   if (ctx.preview) {
     variant = 'NOTICE';
   } else {
+    if (!noticeKey && !closeKey && !reminderKeys.length) return { skip: 'no attendance dates configured (Settings → Schedule)' };
     if (closeKey && todayKey > closeKey) return { skip: `attendance window closed on ${niceDate(closeKey)}` };
     if (noticeKey && todayKey === noticeKey) variant = 'NOTICE';
     else if (reminderKeys.includes(todayKey)) variant = todayKey === finalKey ? 'FINAL' : 'REMINDER';
@@ -54,7 +55,7 @@ export async function buildAttendanceMail(ctx: BuildCtx): Promise<BuildResult> {
   return {
     variant,
     to: faculty,
-    cc: [cfg.manishankarEmail, cfg.principalEmail, cfg.ashHodEmail, cfg.gnanaKingEmail, owner.email, backup.email],
+    cc: attendanceCc(cfg, owner, backup),
     replyTo: owner.email,
     senderName: senderName(owner.name || 'Attendance'),
     subject,
